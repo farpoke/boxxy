@@ -6,7 +6,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "boxxy"
 description = "Provides utilities for drawing fancy text boxes and tables using the Unicode Box Drawings block."
-version = "0.1"
+version = "1.0"
 requires-python = ">= 3"
 authors = [
     { name="Artemis", email="artemis.martensson@gmail.com" },
@@ -14,7 +14,7 @@ authors = [
 readme = "README.md"
 license = { file = "LICENSE.txt" }
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
