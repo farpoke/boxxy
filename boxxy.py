@@ -506,16 +506,3 @@ class Table:
             w = sum(col_widths[cell.left:cell.right + 1]) - cell.col_span + 1
             h = sum(row_heights[cell.top:cell.bottom + 1]) - cell.row_span + 1
             canvas.text_box(x, y, str(cell.content), width=w, height=h)
-
-
-table = Table(title="Example")
-table.row_headers[0] = 'Row 1'
-table.row_headers[2] = 'Row 3'
-table.col_headers[0] = 'Col 1'
-table.col_headers[1] = 'Col 2'
-table.col_headers[2] = 'Col 3'
-table.col_headers[4] = 'Col 5'
-table.add(0, 0, 'Hello world!')
-table.add(1, 0, 'Span\nmultiple\nrows', row_span=2)
-table.add(1, 1, 'Span columns', col_span=4)
-print(table)

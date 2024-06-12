@@ -16,7 +16,7 @@ canvas.text_box(16, 1, 'Multi\nline\nbox')
 print(canvas)
 ```
 
-Output:
+Output (sadly not displaying correctly on PyPI):
 ```text
 ┌────────┐                  
 │       ┌┴──┐   ┌───────┐   
@@ -53,7 +53,7 @@ table.add(1, 1, 'Span columns', col_span=4)
 print(table)
 ```
 
-Output:
+Output (sadly not displaying correctly on PyPI):
 ```text
         ┌─────────┐                                
         │ Example │                                
