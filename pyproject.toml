@@ -6,7 +6,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "boxxy"
 description = "Provides utilities for drawing fancy text boxes and tables using the Unicode Box Drawings block."
-version = "1.0"
+version = "1.1"
 requires-python = ">= 3"
 authors = [
     { name="Artemis", email="artemis.martensson@gmail.com" },

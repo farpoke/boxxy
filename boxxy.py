@@ -4,10 +4,15 @@ from dataclasses import dataclass
 
 __all__ = [
     'BoxChar',
+    'Padding',
+    'HAlign',
+    'VAlign',
     'BoxCanvas',
     'TableCell',
     'Table',
 ]
+
+from jinja2.nodes import Name
 
 
 class BoxChar(enum.Flag, boundary=enum.KEEP):
@@ -133,7 +138,24 @@ class Padding:
             raise Exception(f'Padding() expects 0, 1, 2, or 4 arguments. Got {len(args)}.')
 
 
+class HAlign(enum.Enum):
+    Left = 'left'
+    Center = 'center'
+    Right = 'right'
+
+
+class VAlign(enum.Enum):
+    Top = 'top'
+    Middle = 'middle'
+    Bottom = 'bottom'
+
+
 class BoxCanvas:
+    background_char: str = ' '
+    default_fill_char: str = ' '
+    default_h_align: HAlign = HAlign.Left
+    default_v_align: VAlign = VAlign.Top
+    default_align_char: str = ' '
     default_padding: Padding = Padding(1, 0)
 
     def __init__(self):
@@ -166,7 +188,7 @@ class BoxCanvas:
         for row in self._canvas:
             for cell in row:
                 if cell is None:
-                    text += ' '
+                    text += self.background_char
                 else:
                     text += str(cell)
             text += '\n'
@@ -186,7 +208,7 @@ class BoxCanvas:
         current = self[x, y]
         if isinstance(current, BoxChar):
             self[x, y] = current | item
-        elif current is None:
+        else:
             self[x, y] = item
 
     def and_boxchar(self, x: int, y: int, item: BoxChar):
@@ -211,17 +233,18 @@ class BoxCanvas:
             self.or_boxchar(x, y_, down)
             self.or_boxchar(x, y_ + 1, up)
 
-    def clear_rect(self, x: int, y: int, w: int, h: int):
+    def clear_rect(self, x: int, y: int, w: int, h: int, fill: str | None = None):
+        assert fill is None or isinstance(fill, str) and len(fill) == 1
         left = max(0, x)
         right = min(self.width, x + w)
         top = max(0, y)
         bottom = min(self.height, y + h)
         for x_ in range(left, right):
             for y_ in range(top, bottom):
-                self[x_, y_] = None
+                self[x_, y_] = fill
 
-    def clear_box(self, x: int, y: int, w: int, h: int):
-        self.clear_rect(x + 1, y + 1, w - 2, h - 2)
+    def clear_box(self, x: int, y: int, w: int, h: int, fill: str | None = None):
+        self.clear_rect(x + 1, y + 1, w - 2, h - 2, fill)
         for x_ in range(x, x + w):
             self.remove_boxchar(x_, y, BoxChar.DOWN_DOUBLE)
             self.remove_boxchar(x_, y + h - 1, BoxChar.UP_DOUBLE)
@@ -240,7 +263,7 @@ class BoxCanvas:
                  double_left: bool = False,
                  double_right: bool = False,
                  double_all: bool = False,
-                 fill: bool = False,
+                 fill: str | bool = False,
                  ):
         """
         Draw a box.
@@ -248,9 +271,11 @@ class BoxCanvas:
         By default, this will be a single-line rectangle, but some or all edges may be drawn with doubled lines if
         specified via keyword arguments.
 
-        By default, the inside of the box will be unmodified, meaning existing text will be left alone, and existing
-        borders will be combined with the new ones. If :param:`fill` is set to true the inside will instead be filled with
-        empty space, and existing borders will be adjusted to not continue into the box.
+        If :param:`fill` is False (the default), the inside of the box will be unmodified, meaning existing text will
+        be left alone, and existing borders will be combined with the new ones. If :param:`fill` is a one-character
+        string then the inside will instead be filled with this character, and existing borders will be adjusted to
+        not continue into the box. If :param:`fill` is True, this is equivalent to calling with `default_fill_char`
+        as the `fill` parameter.
 
         :param x: X coordinate of upper left corner.
         :param y: Y coordinate of upper left corner.
@@ -263,8 +288,9 @@ class BoxCanvas:
         :param double_all: Draw all edges with double lines.
         :param fill: Fill the inside of the box with empty space.
         """
-        if fill:
-            self.clear_box(x, y, w, h)
+        self.expand(x + w - 1, y + h - 1)
+        if fill is not False:
+            self.clear_box(x, y, w, h, self.default_fill_char if fill is True else fill)
         self.draw_horizontal(x, y, w, double_top or double_all)
         self.draw_horizontal(x, y + h - 1, w, double_bottom or double_all)
         self.draw_vertical(x, y, h, double_left or double_all)
@@ -291,39 +317,85 @@ class BoxCanvas:
                  *,
                  width: int | None = None,
                  height: int | None = None,
+                 h_align: HAlign | None = None,
+                 v_align: VAlign | None = None,
+                 align_char: str | None = None,
                  padding: Padding | None = None,
+                 fill_char: str | None = None,
                  **kwargs
                  ) -> tuple[int, int]:
         """
-        Draw a box with (left adjusted) text in it.
+        Draw a box and write text inside it.
 
         If `width` and/or `height` is `None` (which is the default), then the missing value(s) will be calculated
         by `fit_text()`.
 
-        If `width` and/or `height` is given, and the text extends outside the box, then the text will be clipped.
+        If `width` and/or `height` is given, and the text extends outside the available space, then the text will
+        be clipped. The available space is the width and/or height, minus one character on each side for the border,
+        minus padding.
 
         :param x: X coordinate of upper left corner of the box.
         :param y: Y coordinate of upper left corner of the box.
         :param text: Text to be written inside the box.
-        :param width: Width of the drawn box, including border and padding, or `None`.
-        :param height: Height of the drawn box, including border and padding, or `None`.
-        :param padding: Optional padding. Will use `default_padding` if `None` (the default).
-        :param kwargs: Additional keyword arguments are passed to `draw_box()`.
+        :param width: Width of the drawn box, including border and padding, or `None` to auto-fit.
+        :param height: Height of the drawn box, including border and padding, or `None` to auto-fit.
+        :param fill_char: Character used to fill the box. Will use `default_fill_char` if `None`.
+        :param h_align: Horizontal text alignment inside the box. Will use `default_h_align` if `None`.
+        :param v_align: Vertical text alignment inside the box. Will use `default_v_align` if `None`.
+        :param align_char: Padding character to use when adjusting text. Will use `default_align_char` if `None`.
+        :param padding: Optional padding. Will use `default_padding` if `None`.
+        :param kwargs: Additional keyword arguments are passed to `draw_box()`, such as `double_all`.
         :returns: A tuple (width, height) of the final box size, including padding and borders.
         """
 
-        if padding is None:
-            padding = self.default_padding
+        # Apply defaults.
+        h_align = h_align or self.default_h_align
+        v_align = v_align or self.default_v_align
+        align_char = align_char or self.default_align_char
+        padding = padding or self.default_padding
 
+        # Auto-fit width and/or height if not given.
         fit_w, fit_h = self.fit_text(text, padding=padding)
-        if width is None:
-            width = fit_w
-        if height is None:
-            height = fit_h
+        width = width or fit_w
+        height = height or fit_h
 
-        self.draw_box(x, y, width, height, fill=True, **kwargs)
+        # Draw the box.
+        self.draw_box(x, y, width, height, fill=fill_char, **kwargs)
 
+        # Figure out what out text lines are going to be.
         lines = text.splitlines()
+        max_lines = height - 2 - padding.height
+        height_diff = max_lines - len(lines)
+        if height_diff < 0:
+            # Truncate lines past what we can fit.
+            lines = lines[:max_lines]
+        elif height_diff > 0:
+            # Apply vertical alignment.
+            if v_align == VAlign.Top:
+                pad_top = 0
+            elif v_align == VAlign.Middle:
+                pad_top = height_diff // 2
+            else:
+                pad_top = height_diff
+            lines = [''] * pad_top + lines + [''] * (height_diff - pad_top)
+
+        # Adjust individual lines for width.
+        max_width = width - 2 - padding.width
+        for idx, line in enumerate(lines):
+            width_diff = max_width - len(line)
+            if width_diff < 0:
+                # Truncate lines that are too long.
+                lines[idx] = line[:width_diff]
+            elif width_diff > 0:
+                # Apply horizontal alignment.
+                if h_align == HAlign.Left:
+                    lines[idx] = line.ljust(max_width, align_char)
+                elif h_align == HAlign.Center:
+                    lines[idx] = line.center(max_width, align_char)
+                elif h_align == HAlign.Right:
+                    lines[idx] = line.rjust(max_width, align_char)
+
+        # Add the final text to the canvas.
         for r, line in enumerate(lines):
             for c, char in enumerate(line):
                 self[x + padding.left + c + 1, y + padding.up + r + 1] = char
@@ -335,10 +407,18 @@ class BoxCanvas:
 class TableCell:
     row: int
     col: int
+
     content: any
+
     row_span: int = 1
     col_span: int = 1
+
     double: bool = False
+
+    h_align: HAlign | None = None
+    v_align: VAlign | None = None
+    padding: Padding | None = None
+    align_char: str | None = None
 
     @property
     def left(self):
@@ -356,15 +436,23 @@ class TableCell:
     def bottom(self):
         return self.row + self.row_span - 1
 
+    @property
+    def col_range(self) -> range:
+        return range(self.left, self.right + 1)
+
+    @property
+    def row_range(self) -> range:
+        return range(self.top, self.bottom + 1)
+
     def contains_point(self, x: int, y: int) -> bool:
         return self.left <= x <= self.right and self.top <= y <= self.bottom
 
     def overlaps(self, other: 'TableCell') -> bool:
         return not (
-            self.right < other.left or
-            self.left > other.right or
-            self.bottom < other.top or
-            self.top > other.bottom
+                self.right < other.left or
+                self.left > other.right or
+                self.bottom < other.top or
+                self.top > other.bottom
         )
 
     def __str__(self):
@@ -373,28 +461,65 @@ class TableCell:
         return f'<R{x}, C{y}, "{self.content}">'
 
 
+def _total_size(sizes: dict[int, int], where: range) -> int:
+    return sum(sizes[i] for i in where) - len(where) + 1
+
+
+def _adjust_sizes(target: int, current: dict[int, int], where: range):
+    expand_by = target - _total_size(current, where)
+    if expand_by <= 0:
+        return
+    divided = (expand_by + len(where) - 1) // len(where)
+    for i in where:
+        current[i] += divided
+
+
+def _accumulate_coordinates(initial: int, sizes: dict[int, int]) -> dict[int, int]:
+    pos = initial
+    result = {}
+    for idx, size in sizes.items():
+        result[idx] = pos
+        pos += size - 1
+    return result
+
+
 class Table:
+    default_background: str | None = None
+    default_h_align: HAlign = HAlign.Center
+    default_v_align: VAlign = VAlign.Middle
+    default_align_char: str | None = None
+    default_padding: Padding | None = None
+
     def __init__(self, title: str = ''):
         self.title = title
         self.cells: list[TableCell] = []
-        self.row_headers: dict[int, str] = {}
-        self.col_headers: dict[int, str] = {}
         self.width_overrides: dict[int, int] = {}
         self.height_overrides: dict[int, int] = {}
+        self.background: str | None = None
+
+    @property
+    def left(self):
+        return min((cell.left for cell in self.cells), default=0)
+
+    @property
+    def right(self):
+        return max((cell.right for cell in self.cells), default=0)
+
+    @property
+    def top(self):
+        return min((cell.top for cell in self.cells), default=0)
+
+    @property
+    def bottom(self):
+        return max((cell.bottom for cell in self.cells), default=0)
 
     @property
     def width(self):
-        return max(
-            max((cell.right + 1 for cell in self.cells), default=0),
-            max((col + 1 for col, _ in self.col_headers.items()), default=0),
-        )
+        return self.right - self.left + 1
 
     @property
     def height(self):
-        return max(
-            max((cell.bottom + 1 for cell in self.cells), default=0),
-            max((row + 1 for row, _ in self.row_headers.items()), default=0),
-        )
+        return self.bottom - self.top + 1
 
     def __getitem__(self, item: tuple[int, int]) -> TableCell | None:
         x, y = item
@@ -419,90 +544,54 @@ class Table:
     def draw(self, canvas: BoxCanvas, offset_x: int = 0, offset_y: int = 0):
         # Initialize an empty layout.
         # The default column and row size is 3, to fit a minimum box with a single empty character in it.
-        col_widths = [3] * self.width
-        row_heights = [3] * self.height
-        # Optional items are sized to 1 by default, since 1 is subtracted in calculations.
-        header_row_height = 1
-        header_col_width = 1
-        title_width, title_height = 1, 1
+        col_widths = {c: 3 for c in range(self.left, self.right + 1)}
+        row_heights = {r: 3 for r in range(self.top, self.bottom + 1)}
 
         # Figure out the minimum column widths and row heights to fit the table's content.
         for cell in self.cells:
             w, h = canvas.fit_text(cell.content)
-            w //= cell.col_span
-            h //= cell.row_span
-            for c in range(cell.left, cell.right + 1):
-                col_widths[c] = max(col_widths[c], w)
-            for r in range(cell.top, cell.bottom + 1):
-                row_heights[r] = max(row_heights[r], h)
-
-        # Adjust layout to fit any given row or column headers.
-        for c, text in self.col_headers.items():
-            w, h = canvas.fit_text(text)
-            col_widths[c] = max(col_widths[c], w)
-            header_row_height = max(header_row_height, h)
-        for r, text in self.row_headers.items():
-            w, h = canvas.fit_text(text)
-            row_heights[r] = max(row_heights[r], h)
-            header_col_width = max(header_col_width, w)
+            _adjust_sizes(w, col_widths, cell.col_range)
+            _adjust_sizes(h, row_heights, cell.row_range)
 
         # Apply width and/or height overrides, if any have been set.
         for c, width in self.width_overrides.items():
-            if c == -1:
-                header_col_width = width
-            else:
-                col_widths[c] = width
+            col_widths[c] = width
         for r, height in self.height_overrides.items():
-            if r == -1:
-                header_row_height = height
-            else:
-                row_heights[r] = height
+            row_heights[r] = height
 
         # Compute the size of the title box.
         if len(self.title) > 0:
             title_width, title_height = canvas.fit_text(self.title)
+        else:
+            title_width, title_height = 1, 1  # Default to 1 since we subtract by one later.
 
-        # Figure out the final coordinates of everything.
-        title_x = offset_x + (header_col_width - 1)
-        title_y = offset_y
-
-        header_row_x = title_x
-        header_row_y = title_y + (title_height - 1)
-
-        header_col_x = offset_x
-        header_col_y = header_row_y + (header_row_height - 1)
-
-        x = header_row_x
-        col_x = []
-        for w in col_widths:
-            col_x.append(x)
-            x += w - 1
-        col_x.append(x)
-
-        y = header_col_y
-        row_y = []
-        for h in row_heights:
-            row_y.append(y)
-            y += h - 1
-        row_y.append(y)
+        # Calculate the column x and row y coordinates based on the final widths and heights.
+        col_x = _accumulate_coordinates(offset_x, col_widths)
+        row_y = _accumulate_coordinates(offset_y + title_height - 1, row_heights)
 
         # Now it's finally time to draw everything.
-        canvas.draw_box(col_x[0], row_y[0], col_x[-1] - col_x[0] + 1, row_y[-1] - row_y[0] + 1, fill=True)
 
+        # Draw a box around the entire "main" portion of the table, and fill it with our background character (if any).
+        main_width = _total_size(col_widths, range(0, self.right + 1))
+        main_height = _total_size(row_heights, range(0, self.bottom + 1))
+        canvas.draw_box(col_x[0], row_y[0], main_width, main_height, fill=self.background or self.default_background)
+
+        # Draw title box if we have one.
         if title_height > 2:
-            canvas.text_box(title_x, title_y, self.title, width=title_width, height=title_height)
+            canvas.text_box(col_x[0], offset_y, self.title, width=title_width, height=title_height)
 
-        if header_row_height > 2:
-            for c, text in self.col_headers.items():
-                canvas.text_box(col_x[c], header_row_y, text, width=col_widths[c], height=header_row_height)
-
-        if header_col_width > 2:
-            for r, text in self.row_headers.items():
-                canvas.text_box(header_col_x, row_y[r], text, width=header_col_width, height=row_heights[r])
-
+        # Draw all the cells.
         for cell in self.cells:
             x = col_x[cell.left]
             y = row_y[cell.top]
-            w = sum(col_widths[cell.left:cell.right + 1]) - cell.col_span + 1
-            h = sum(row_heights[cell.top:cell.bottom + 1]) - cell.row_span + 1
-            canvas.text_box(x, y, str(cell.content), width=w, height=h)
+            w = _total_size(col_widths, cell.col_range)
+            h = _total_size(row_heights, cell.row_range)
+            canvas.text_box(
+                x, y,
+                str(cell.content),
+                width=w,
+                height=h,
+                h_align=cell.h_align or self.default_h_align,
+                v_align=cell.v_align or self.default_v_align,
+                align_char=cell.align_char or self.default_align_char,
+            )
