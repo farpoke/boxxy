@@ -34,15 +34,13 @@ table = Table(title="Example")
 # Set a background character that will show inside the table where we don't have any cells.
 table.background = '·'
 
-# Add headers.
-# The row and column coordinates can be any integer, and the layout will adjust to fit.
+# Add row headers.
 # Negative rows and columns are treated as headers during layout, but are generally the same as any other cell.
 table.add(0, -1, 'Row 1')
 table.add(2, -1, 'Row 3')
-table.add(-1, 0, 'Col 1')
-table.add(-1, 1, 'Col 2')
-table.add(-1, 2, 'Col 3')
-table.add(-1, 4, 'Col 5')
+
+# Add column headers using one of the utility functions.
+table.add_row('Col 1', 'Col 2', 'Col 3', None, 'Col 5', row=-1)
 
 # Add a cell with some text.
 table.add(0, 0, 'Hello world!')

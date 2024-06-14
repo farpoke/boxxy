@@ -184,15 +184,17 @@ class BoxCanvas:
         self._canvas[y][x] = value
 
     def __str__(self):
-        text = ''
+        return '\n'.join(self.get_lines())
+
+    def get_lines(self):
         for row in self._canvas:
+            line = ''
             for cell in row:
                 if cell is None:
-                    text += self.background_char
+                    line += self.background_char
                 else:
-                    text += str(cell)
-            text += '\n'
-        return text
+                    line += str(cell)
+            yield line
 
     def expand(self, w: int, h: int):
         if w > self.width:
@@ -409,6 +411,7 @@ class TableCell:
     col: int
 
     content: any
+    format_string: str | None = None
 
     row_span: int = 1
     col_span: int = 1
@@ -426,7 +429,7 @@ class TableCell:
 
     @property
     def right(self):
-        return self.col + self.col_span - 1
+        return self.col + self.col_span
 
     @property
     def top(self):
@@ -434,31 +437,45 @@ class TableCell:
 
     @property
     def bottom(self):
-        return self.row + self.row_span - 1
+        return self.row + self.row_span
 
     @property
     def col_range(self) -> range:
-        return range(self.left, self.right + 1)
+        return range(self.left, self.right)
 
     @property
     def row_range(self) -> range:
-        return range(self.top, self.bottom + 1)
+        return range(self.top, self.bottom)
+
+    @property
+    def pos(self):
+        return self.row, self.col
 
     def contains_point(self, x: int, y: int) -> bool:
-        return self.left <= x <= self.right and self.top <= y <= self.bottom
+        return self.left <= x < self.right and self.top <= y < self.bottom
 
     def overlaps(self, other: 'TableCell') -> bool:
-        return not (
-                self.right < other.left or
-                self.left > other.right or
-                self.bottom < other.top or
-                self.top > other.bottom
+        return (
+            self.right > other.left and
+            self.left < other.right and
+            self.top > other.bottom and
+            self.bottom < other.top
         )
 
+    def get_text(self, default_format_string: str | None = None) -> str:
+        if self.content is None:
+            return ''
+        #
+        format_string = self.format_string or default_format_string or '{}'
+        try:
+            return format_string.format(self.content)
+        except ValueError as err:
+            raise ValueError(f'Error formatting {self} with format {repr(format_string)}: {err}') from err
+
     def __str__(self):
-        x = str(self.col) if self.col_span == 1 else f'{self.col}:{self.col + self.col_span}'
-        y = str(self.row) if self.row_span == 1 else f'{self.row}:{self.row + self.row_span}'
-        return f'<R{x}, C{y}, "{self.content}">'
+        col = str(self.col) if self.col_span == 1 else f'{self.left}:{self.right}'
+        row = str(self.row) if self.row_span == 1 else f'{self.top}:{self.bottom}'
+        return f'<R{row}, C{col}, {repr(self.content)}>'
 
 
 def _total_size(sizes: dict[int, int], where: range) -> int:
@@ -485,6 +502,7 @@ def _accumulate_coordinates(initial: int, sizes: dict[int, int]) -> dict[int, in
 
 class Table:
     default_background: str | None = None
+    default_format: str | None = None
     default_h_align: HAlign = HAlign.Center
     default_v_align: VAlign = VAlign.Middle
     default_align_char: str | None = None
@@ -495,6 +513,10 @@ class Table:
         self.cells: list[TableCell] = []
         self.width_overrides: dict[int, int] = {}
         self.height_overrides: dict[int, int] = {}
+        self.col_format: dict[int, str] = {}
+        self.row_format: dict[int, str] = {}
+        self.col_h_align: dict[int, HAlign] = {}
+        self.row_v_align: dict[int, VAlign] = {}
         self.background: str | None = None
 
     @property
@@ -515,11 +537,11 @@ class Table:
 
     @property
     def width(self):
-        return self.right - self.left + 1
+        return self.right - self.left
 
     @property
     def height(self):
-        return self.bottom - self.top + 1
+        return self.bottom - self.top
 
     def __getitem__(self, item: tuple[int, int]) -> TableCell | None:
         x, y = item
@@ -541,15 +563,57 @@ class Table:
     def add(self, row: int, column: int, content: any, **kwargs):
         self.add_cell(TableCell(row, column, content, **kwargs))
 
+    def add_row(self, *items: any, row: int | None = None, **kwargs):
+        """
+        Add any number of items as a row.
+        :param items: Items to add. None values will not be added, but do advance the column index.
+        :param row: Row index where the items should be added. This is None by default, which will make the function
+                    use `Table.bottom` instead, i.e. the row will be placed at the current bottom of the table.
+        :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
+        :returns The row index where the items were added.
+        """
+        if row is None:
+            row = self.bottom
+        for col, value in enumerate(items):
+            if value is not None:
+                self.add(row, col, value, **kwargs)
+        return row
+
+    def add_col(self, *items: any, col: int | None = None, **kwargs):
+        """
+        Add any number of items as a column.
+        :param items: Items to add. None values will not be added, but do advance the row index.
+        :param col: Column index where the items should be added. This is None by default, which will make the function
+                    use `Table.right` instead, i.e. the column will be placed at the current right of the table.
+        :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
+        :returns The column index where the items were added.
+        """
+        if col is None:
+            col = self.right
+        for row, value in enumerate(items):
+            if value is not None:
+                self.add(row, col, value, **kwargs)
+        return col
+
     def draw(self, canvas: BoxCanvas, offset_x: int = 0, offset_y: int = 0):
         # Initialize an empty layout.
         # The default column and row size is 3, to fit a minimum box with a single empty character in it.
-        col_widths = {c: 3 for c in range(self.left, self.right + 1)}
-        row_heights = {r: 3 for r in range(self.top, self.bottom + 1)}
+        col_widths = {c: 3 for c in range(self.left, self.right)}
+        row_heights = {r: 3 for r in range(self.top, self.bottom)}
+
+        # Collect formatted text values for all the cells.
+        cell_text: dict[(int, int), str] = {}
+        for cell in self.cells:
+            format_string = self.default_format
+            if cell.row >= 0 and cell.col in self.col_format:
+                format_string = self.col_format[cell.col]
+            if cell.col >= 0 and cell.row in self.row_format:
+                format_string = self.row_format[cell.row]
+            cell_text[cell.pos] = cell.get_text(format_string)
 
         # Figure out the minimum column widths and row heights to fit the table's content.
         for cell in self.cells:
-            w, h = canvas.fit_text(cell.content)
+            w, h = canvas.fit_text(cell_text[cell.pos])
             _adjust_sizes(w, col_widths, cell.col_range)
             _adjust_sizes(h, row_heights, cell.row_range)
 
@@ -572,8 +636,8 @@ class Table:
         # Now it's finally time to draw everything.
 
         # Draw a box around the entire "main" portion of the table, and fill it with our background character (if any).
-        main_width = _total_size(col_widths, range(0, self.right + 1))
-        main_height = _total_size(row_heights, range(0, self.bottom + 1))
+        main_width = _total_size(col_widths, range(0, self.right))
+        main_height = _total_size(row_heights, range(0, self.bottom))
         canvas.draw_box(col_x[0], row_y[0], main_width, main_height, fill=self.background or self.default_background)
 
         # Draw title box if we have one.
@@ -588,10 +652,10 @@ class Table:
             h = _total_size(row_heights, cell.row_range)
             canvas.text_box(
                 x, y,
-                str(cell.content),
+                cell_text[cell.pos],
                 width=w,
                 height=h,
-                h_align=cell.h_align or self.default_h_align,
-                v_align=cell.v_align or self.default_v_align,
+                h_align=cell.h_align or self.col_h_align.get(cell.col, self.default_h_align),
+                v_align=cell.v_align or self.row_v_align.get(cell.row, self.default_v_align),
                 align_char=cell.align_char or self.default_align_char,
             )
