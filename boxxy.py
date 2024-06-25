@@ -1,4 +1,6 @@
 import enum
+from typing import Iterable
+
 import unicodedata
 from dataclasses import dataclass
 
@@ -308,7 +310,7 @@ class BoxCanvas:
         if padding is None:
             padding = self.default_padding
         lines = text.splitlines()
-        w = max(map(len, lines)) + 2 + padding.width
+        w = max(map(len, lines), default=0) + 2 + padding.width
         h = len(lines) + 2 + padding.height
         return w, h
 
@@ -563,6 +565,29 @@ class Table:
     def add(self, row: int, column: int, content: any, **kwargs):
         self.add_cell(TableCell(row, column, content, **kwargs))
 
+    def add_sequence(self,
+                     items: Iterable[any],
+                     start: tuple[int, int],
+                     stride: tuple[int, int],
+                     replace_none: any = None,
+                     **kwargs):
+        """
+        Add a sequence of cells, with a given starting location and stride.
+        :param items: Items that should be added to the table.
+        :param start: Tuple (row, col) specifying where the first item should be added.
+        :param stride: Tuple (row, col) added to the location after every item.
+        :param replace_none: Optional value used to replace None items.
+        :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
+        """
+        row, col = start
+        for value in items:
+            if value is None:
+                value = replace_none
+            if value is not None:
+                self.add(row, col, value, **kwargs)
+            row += stride[0]
+            col += stride[1]
+
     def add_row(self, *items: any, row: int | None = None, col: int | None = None, **kwargs):
         """
         Add any number of items as a row.
@@ -570,17 +595,12 @@ class Table:
         :param row: Row index where the items should be added. This is None by default, which will make the function
                     use `Table.bottom` instead, i.e. the row will be placed at the current bottom of the table.
         :param col: Optional starting column index. If not specified then the first item will be in column 0.
-        :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
+        :param kwargs: Additional keyword arguments which will be passed to add_sequence.
         :returns The row index where the items were added.
         """
         if row is None:
             row = self.bottom
-        if col is None:
-            col = 0
-        for value in items:
-            if value is not None:
-                self.add(row, col, value, **kwargs)
-            col += 1
+        self.add_sequence(items, (row, col or 0), (0, 1), **kwargs)
         return row
 
     def add_col(self, *items: any, col: int | None = None, row: int | None = None, **kwargs):
@@ -590,17 +610,12 @@ class Table:
         :param col: Column index where the items should be added. This is None by default, which will make the function
                     use `Table.right` instead, i.e. the column will be placed at the current right of the table.
         :param row: Optional starting row index. If not specified then the first item will be in row 0.
-        :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
+        :param kwargs: Additional keyword arguments which will be passed to add_sequence.
         :returns The column index where the items were added.
         """
         if col is None:
             col = self.right
-        if row is None:
-            row = 0
-        for value in items:
-            if value is not None:
-                self.add(row, col, value, **kwargs)
-            row += 1
+        self.add_sequence(items, (row or 0, col), (1, 0), **kwargs)
         return col
 
     def draw(self, canvas: BoxCanvas, offset_x: int = 0, offset_y: int = 0):
