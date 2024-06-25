@@ -563,36 +563,44 @@ class Table:
     def add(self, row: int, column: int, content: any, **kwargs):
         self.add_cell(TableCell(row, column, content, **kwargs))
 
-    def add_row(self, *items: any, row: int | None = None, **kwargs):
+    def add_row(self, *items: any, row: int | None = None, col: int | None = None, **kwargs):
         """
         Add any number of items as a row.
         :param items: Items to add. None values will not be added, but do advance the column index.
         :param row: Row index where the items should be added. This is None by default, which will make the function
                     use `Table.bottom` instead, i.e. the row will be placed at the current bottom of the table.
+        :param col: Optional starting column index. If not specified then the first item will be in column 0.
         :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
         :returns The row index where the items were added.
         """
         if row is None:
             row = self.bottom
-        for col, value in enumerate(items):
+        if col is None:
+            col = 0
+        for value in items:
             if value is not None:
                 self.add(row, col, value, **kwargs)
+            col += 1
         return row
 
-    def add_col(self, *items: any, col: int | None = None, **kwargs):
+    def add_col(self, *items: any, col: int | None = None, row: int | None = None, **kwargs):
         """
         Add any number of items as a column.
         :param items: Items to add. None values will not be added, but do advance the row index.
         :param col: Column index where the items should be added. This is None by default, which will make the function
                     use `Table.right` instead, i.e. the column will be placed at the current right of the table.
+        :param row: Optional starting row index. If not specified then the first item will be in row 0.
         :param kwargs: Additional keyword arguments which will be passed to the TableCell constructor.
         :returns The column index where the items were added.
         """
         if col is None:
             col = self.right
-        for row, value in enumerate(items):
+        if row is None:
+            row = 0
+        for value in items:
             if value is not None:
                 self.add(row, col, value, **kwargs)
+            row += 1
         return col
 
     def draw(self, canvas: BoxCanvas, offset_x: int = 0, offset_y: int = 0):
