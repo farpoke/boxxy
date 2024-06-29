@@ -1,8 +1,11 @@
+__version__ = '1.1'
+
+
 import enum
 from typing import Iterable
-
 import unicodedata
 from dataclasses import dataclass
+
 
 __all__ = [
     'BoxChar',
@@ -13,8 +16,6 @@ __all__ = [
     'TableCell',
     'Table',
 ]
-
-from jinja2.nodes import Name
 
 
 class BoxChar(enum.Flag, boundary=enum.KEEP):
