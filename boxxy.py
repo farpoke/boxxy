@@ -18,7 +18,13 @@ __all__ = [
 ]
 
 
-class BoxChar(enum.Flag, boundary=enum.KEEP):
+if hasattr(enum, 'KEEP'):
+    _enum_kwargs = dict(boundary=enum.KEEP)
+else:
+    _enum_kwargs = {}
+
+
+class BoxChar(enum.Flag, **_enum_kwargs):
     SPACE = 0
     #
     LEFT = 1
